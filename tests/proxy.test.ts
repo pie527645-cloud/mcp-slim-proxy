@@ -228,4 +228,107 @@ describe('DownstreamManager Multiplexer, Quarantine, Savings & Tree Reaping', ()
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('preserves multi-byte UTF-8 across split stdout and stderr pipe chunks', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slim-utf8-test-'));
+    const splitServerScript = path.join(tmpDir, 'split-utf8-server.mjs');
+
+    const scriptSource = `
+import readline from 'node:readline';
+
+const mode = process.argv[2];
+if (mode === 'stderr-crash') {
+  const errBytes = Buffer.from('初期化失敗🚀詳細ログ\\n', 'utf8');
+  const rocketIdx = errBytes.indexOf(0xf0);
+  process.stderr.write(errBytes.subarray(0, rocketIdx + 2));
+  setTimeout(() => {
+    process.stderr.write(errBytes.subarray(rocketIdx + 2), () => {
+      process.exit(1);
+    });
+  }, 25);
+} else {
+  const rl = readline.createInterface({ input: process.stdin, terminal: false });
+  rl.on('line', (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const msg = JSON.parse(trimmed);
+    if (msg.method === 'initialize') {
+      process.stdout.write(JSON.stringify({
+        jsonrpc: '2.0',
+        id: msg.id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'utf8-mock', version: '0.1.0' }
+        }
+      }) + '\\n');
+    } else if (msg.method === 'tools/list') {
+      const payload = Buffer.from(JSON.stringify({
+        jsonrpc: '2.0',
+        id: msg.id,
+        result: {
+          tools: [{
+            name: 'utf8_echo',
+            description: 'マルチバイト🚀説明文',
+            inputSchema: { type: 'object', properties: {} }
+          }]
+        }
+      }) + '\\n', 'utf8');
+      const rocketIdx = payload.indexOf(0xf0);
+      process.stdout.write(payload.subarray(0, rocketIdx + 2));
+      setTimeout(() => {
+        process.stdout.write(payload.subarray(rocketIdx + 2));
+      }, 25);
+    }
+  });
+  setInterval(() => {}, 10000);
+}
+`;
+    fs.writeFileSync(splitServerScript, scriptSource, 'utf8');
+
+    const crashManager = new DownstreamManager(
+      {
+        mcpServers: {
+          broken: {
+            command: process.execPath,
+            args: [splitServerScript, 'stderr-crash'],
+          },
+        },
+      },
+      { timeoutMs: 5000 }
+    );
+
+    const healthyManager = new DownstreamManager(
+      {
+        mcpServers: {
+          utf8srv: {
+            command: process.execPath,
+            args: [splitServerScript, 'stdout-ok'],
+          },
+        },
+      },
+      { timeoutMs: 5000 }
+    );
+
+    try {
+      await assert.rejects(
+        () => crashManager.start(),
+        (err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          assert.ok(message.includes('初期化失敗🚀詳細ログ'), `Unexpected error message: ${message}`);
+          assert.equal(message.includes('\uFFFD'), false);
+          return true;
+        }
+      );
+
+      await healthyManager.start();
+      const desc = healthyManager.describeHealthyTool('utf8srv.utf8_echo');
+      assert.equal(desc.description, 'マルチバイト🚀説明文');
+      assert.equal(desc.description.includes('\uFFFD'), false);
+    } finally {
+      await crashManager.close();
+      await healthyManager.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

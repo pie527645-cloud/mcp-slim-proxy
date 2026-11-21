@@ -104,6 +104,38 @@ export class DownstreamConnection {
 
     this.child = child;
     const decoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+    let stdoutFlushed = false;
+    let stderrFlushed = false;
+
+    const flushStdout = (): void => {
+      if (stdoutFlushed) {
+        return;
+      }
+      stdoutFlushed = true;
+      const trailing = decoder.end();
+      if (trailing.length > 0) {
+        this.handleStdoutChunk(trailing);
+      }
+      if (this.stdoutRemainder.length > 0) {
+        const finalLine = this.stdoutRemainder.replace(/\r$/, '').trim();
+        this.stdoutRemainder = '';
+        if (finalLine.length > 0) {
+          this.handleJsonRpcLine(finalLine);
+        }
+      }
+    };
+
+    const flushStderr = (): void => {
+      if (stderrFlushed) {
+        return;
+      }
+      stderrFlushed = true;
+      const trailing = stderrDecoder.end();
+      if (trailing.length > 0) {
+        this.stderrTail = (this.stderrTail + trailing).slice(-MAX_STDERR_BUFFER_CHARS);
+      }
+    };
 
     child.stdout?.on('data', (chunk: Buffer) => {
       if (this.child !== child) {
@@ -112,12 +144,28 @@ export class DownstreamConnection {
       this.handleStdoutChunk(decoder.write(chunk));
     });
 
+    child.stdout?.once('end', () => {
+      if (this.child !== child) {
+        return;
+      }
+      flushStdout();
+    });
+
     child.stderr?.on('data', (chunk: Buffer) => {
       if (this.child !== child) {
         return;
       }
-      const text = chunk.toString('utf8');
-      this.stderrTail = (this.stderrTail + text).slice(-MAX_STDERR_BUFFER_CHARS);
+      const text = stderrDecoder.write(chunk);
+      if (text.length > 0) {
+        this.stderrTail = (this.stderrTail + text).slice(-MAX_STDERR_BUFFER_CHARS);
+      }
+    });
+
+    child.stderr?.once('end', () => {
+      if (this.child !== child) {
+        return;
+      }
+      flushStderr();
     });
 
     child.once('error', (err: Error) => {
@@ -136,6 +184,8 @@ export class DownstreamConnection {
       if (this.child !== child) {
         return;
       }
+      flushStdout();
+      flushStderr();
       this.connected = false;
       this.child = null;
       if (!this.closing) {
