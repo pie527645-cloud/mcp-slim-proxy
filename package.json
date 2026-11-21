@@ -1,0 +1,55 @@
+{
+  "name": "@pie527645-cloud/mcp-slim-proxy",
+  "version": "0.1.0",
+  "description": "Zero-bloat MCP multiplexer, lazy BM25 tool search, out-of-context pipeline runner, and tool-poisoning firewall.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "bin": {
+    "mcp-slim-proxy": "./dist/cli.js",
+    "mcp-slim-proxy-server": "./dist/mcp.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "lint": "tsc -p tsconfig.test.json --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "tsc -p tsconfig.json && tsc -p tsconfig.test.json && node --test dist-test/tests/firewall.test.js dist-test/tests/search.test.js dist-test/tests/pipeline.test.js dist-test/tests/proxy.test.js dist-test/tests/cli.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.19",
+    "typescript": "^5.7.3"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "proxy",
+    "multiplexer",
+    "firewall",
+    "tool-poisoning",
+    "token-optimization",
+    "bm25"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pie527645-cloud/mcp-slim-proxy.git"
+  }
+}
