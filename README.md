@@ -276,6 +276,7 @@ All firewall checks use deterministic linear-time (`O(n)`) scanners with zero ba
 | **Instruction Overrides** | `high` / `critical` | Override directives including `ignore previous`, `ignore all previous`, `system prompt`, `disregard`, `<IMPORTANT>`, `<instructions>`, `<system>`, and stealth suppression directives. |
 | **Sensitive Exfiltration Targets** | `critical` | References to credential and secret paths including `~/.ssh`, `~/.aws`, `.env`, `/etc/passwd`, `/etc/shadow`, `id_rsa`, and `id_ed25519` across descriptions and nested schema properties. |
 | **Cross-Tool Shadowing** | `high` | Coercive behavioral hijacking directives (`instead of calling`, `before calling`, `override tool`, etc.) and cross-server peer tool shadowing attempts. |
+| **Oversized / Deep Schema Guard (`MCP107`)** | `high` | Fails closed when a tool schema exceeds `1,000` AST nodes or nesting depth `16`, preventing padding-based firewall bypasses. |
 | **Prototype-Pollution Guard** | Runtime Error | Blocks `__proto__`, `constructor`, `prototype`, and non-own inherited properties across config server keys, pipeline step IDs, argument keys, and `${steps.<idx>.json.<dot.path>}` traversals. |
 
 ---

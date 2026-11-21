@@ -23,7 +23,8 @@ export type FindingCategory =
   | 'html_comment'
   | 'instruction_override'
   | 'exfiltration'
-  | 'cross_tool_shadowing';
+  | 'cross_tool_shadowing'
+  | 'schema_complexity';
 
 export interface PoisoningFinding {
   severity: FindingSeverity;

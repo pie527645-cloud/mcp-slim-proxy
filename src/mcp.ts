@@ -1,10 +1,32 @@
 #!/usr/bin/env node
-import { pathToFileURL } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadSlimConfig, resolveConfigPath } from './config.js';
 import { DEFAULT_TIMEOUT_MS } from './downstream.js';
 import { startStdioSlimProxy } from './server.js';
 
 export const VERSION = '0.1.0';
+
+export function isExecutedDirectly(
+  importMetaUrl: string,
+  argv1: string | undefined = process.argv[1]
+): boolean {
+  if (!argv1) {
+    return false;
+  }
+  try {
+    const moduleRealPath = fs.realpathSync(fileURLToPath(importMetaUrl));
+    const invokedRealPath = fs.realpathSync(path.resolve(argv1));
+    return moduleRealPath === invokedRealPath;
+  } catch {
+    try {
+      return importMetaUrl === pathToFileURL(path.resolve(argv1)).href;
+    } catch {
+      return false;
+    }
+  }
+}
 
 export interface ParsedServerFlags {
   help: boolean;
@@ -163,11 +185,7 @@ export async function runMcpEntrypoint(argv: readonly string[] = process.argv.sl
   });
 }
 
-const isDirectExecution =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (isDirectExecution) {
+if (isExecutedDirectly(import.meta.url)) {
   runMcpEntrypoint().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[mcp-slim-proxy-server] Error: ${message}\n`);

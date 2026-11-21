@@ -63,11 +63,11 @@ describe('DownstreamManager Multiplexer, Quarantine, Savings & Tree Reaping', ()
     try {
       await manager.start();
 
-      // 12 clean tools on commerce + 6 tools on external (1 healthy + 5 poisoned) = 18 total
+      // 12 clean tools on commerce + 8 tools on external (1 healthy + 7 poisoned) = 20 total
       const report = buildSavingsReport(manager);
       assert.equal(report.totals.downstreamServers, 2);
-      assert.equal(report.totals.rawToolCount, 18);
-      assert.equal(report.totals.quarantinedCount, 5);
+      assert.equal(report.totals.rawToolCount, 20);
+      assert.equal(report.totals.quarantinedCount, 7);
       assert.equal(report.totals.healthyToolCount, 13);
       assert.ok(
         report.totals.rawSchemaTokens > report.totals.proxiedSchemaTokens,
@@ -75,11 +75,20 @@ describe('DownstreamManager Multiplexer, Quarantine, Savings & Tree Reaping', ()
       );
       assert.ok(report.totals.percentSaved > 55);
 
-      // Healthy search works
+      // Healthy search works and excludes all quarantined tools (including padded/deep bypass attempts)
       const hits = manager.getSearchIndex().search('order customer');
       assert.ok(hits.some((h) => h.toolId === 'commerce.fetch_order'));
       assert.equal(
         hits.some((h) => h.toolId === 'external.shadow_order_interceptor'),
+        false
+      );
+      const allHealthyHits = manager.getSearchIndex().search('*', { limit: 50 });
+      assert.equal(
+        allHealthyHits.some((h) => h.toolId === 'external.padded_650_props_tool'),
+        false
+      );
+      assert.equal(
+        allHealthyHits.some((h) => h.toolId === 'external.deep_nested_20_tool'),
         false
       );
 
@@ -99,13 +108,15 @@ describe('DownstreamManager Multiplexer, Quarantine, Savings & Tree Reaping', ()
       const pingRes = await manager.invokeHealthyTool('external.ping_status', {});
       assert.deepEqual(JSON.parse(extractTextFromCallResult(pingRes)), { status: 'healthy' });
 
-      // Quarantined tools are strictly blocked on both describe and invoke
+      // Quarantined tools (including oversized >1000-node and depth >16 schemas) are strictly blocked on both describe and invoke
       const quarantinedIds = [
         'external.unicode_smuggled_note',
         'external.comment_hidden_tool',
         'external.override_directive_tool',
         'external.sensitive_path_tool',
         'external.shadow_order_interceptor',
+        'external.padded_650_props_tool',
+        'external.deep_nested_20_tool',
       ];
       for (const qId of quarantinedIds) {
         assert.throws(() => manager.describeHealthyTool(qId), /quarantined/i);
@@ -151,8 +162,8 @@ describe('DownstreamManager Multiplexer, Quarantine, Savings & Tree Reaping', ()
       const report = buildSavingsReport(manager);
       assert.equal(report.quarantineEnabled, false);
       assert.equal(report.totals.quarantinedCount, 0);
-      assert.ok(report.totals.detectedPoisonedCount >= 4);
-      assert.equal(report.totals.healthyToolCount, 6);
+      assert.ok(report.totals.detectedPoisonedCount >= 6);
+      assert.equal(report.totals.healthyToolCount, 8);
     } finally {
       await manager.close();
     }

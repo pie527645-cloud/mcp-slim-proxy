@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { pathToFileURL } from 'node:url';
 import { loadSlimConfig, resolveConfigPath } from './config.js';
 import { DownstreamManager } from './downstream.js';
-import { parseCommonFlags, VERSION } from './mcp.js';
+import { isExecutedDirectly, parseCommonFlags, VERSION } from './mcp.js';
 import {
   buildSavingsReport,
   formatPrettySavingsReport,
@@ -92,11 +91,7 @@ export async function runCli(argv: readonly string[] = process.argv.slice(2)): P
   );
 }
 
-const isDirectExecution =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (isDirectExecution) {
+if (isExecutedDirectly(import.meta.url)) {
   runCli().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[mcp-slim-proxy] Error: ${message}\n`);

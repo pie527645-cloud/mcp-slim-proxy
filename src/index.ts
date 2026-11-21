@@ -12,6 +12,8 @@ export {
 } from './downstream.js';
 export {
   detectCrossToolShadowing,
+  MAX_SCHEMA_DEPTH,
+  MAX_SCHEMA_NODES,
   scanToolForPoisoning,
   shouldQuarantine,
 } from './firewall.js';

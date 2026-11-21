@@ -248,17 +248,40 @@ function scanStringField(entry: StringFieldEntry, findings: PoisoningFinding[]):
   }
 }
 
+export const MAX_SCHEMA_DEPTH = 16;
+export const MAX_SCHEMA_NODES = 1000;
+
+interface SchemaScanBudget {
+  count: number;
+  depthExceeded: boolean;
+  nodesExceeded: boolean;
+  exceededAtField?: string;
+}
+
 function collectSchemaStrings(
   node: unknown,
   pathPrefix: string,
   out: StringFieldEntry[],
-  budget: { count: number },
+  budget: SchemaScanBudget,
   depth: number
 ): void {
-  if (depth > 16 || budget.count > 1000 || node === null || node === undefined) {
+  if (budget.depthExceeded || budget.nodesExceeded) {
+    return;
+  }
+  if (depth > MAX_SCHEMA_DEPTH) {
+    budget.depthExceeded = true;
+    budget.exceededAtField ??= pathPrefix;
     return;
   }
   budget.count += 1;
+  if (budget.count > MAX_SCHEMA_NODES) {
+    budget.nodesExceeded = true;
+    budget.exceededAtField ??= pathPrefix;
+    return;
+  }
+  if (node === null || node === undefined) {
+    return;
+  }
 
   if (typeof node === 'string') {
     out.push({ field: pathPrefix, value: node });
@@ -268,14 +291,26 @@ function collectSchemaStrings(
   if (Array.isArray(node)) {
     for (let i = 0; i < node.length; i += 1) {
       collectSchemaStrings(node[i], `${pathPrefix}[${i}]`, out, budget, depth + 1);
+      if (budget.depthExceeded || budget.nodesExceeded) {
+        return;
+      }
     }
     return;
   }
 
   if (typeof node === 'object') {
     for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
+      budget.count += 1;
+      if (budget.count > MAX_SCHEMA_NODES) {
+        budget.nodesExceeded = true;
+        budget.exceededAtField ??= `${pathPrefix}.${key}`;
+        return;
+      }
       out.push({ field: `${pathPrefix}.${key}[key]`, value: key });
       collectSchemaStrings(val, `${pathPrefix}.${key}`, out, budget, depth + 1);
+      if (budget.depthExceeded || budget.nodesExceeded) {
+        return;
+      }
     }
   }
 }
@@ -285,14 +320,59 @@ export function scanToolForPoisoning(tool: RawDownstreamTool): PoisoningFinding[
   if (typeof tool.description === 'string') {
     entries.push({ field: 'description', value: tool.description });
   }
-  if (tool.inputSchema !== undefined) {
-    collectSchemaStrings(tool.inputSchema, 'inputSchema', entries, { count: 0 }, 0);
-  }
-  if (tool.annotations !== undefined) {
-    collectSchemaStrings(tool.annotations, 'annotations', entries, { count: 0 }, 0);
-  }
 
   const findings: PoisoningFinding[] = [];
+
+  if (tool.inputSchema !== undefined) {
+    const schemaBudget: SchemaScanBudget = {
+      count: 0,
+      depthExceeded: false,
+      nodesExceeded: false,
+    };
+    collectSchemaStrings(tool.inputSchema, 'inputSchema', entries, schemaBudget, 0);
+    if (schemaBudget.depthExceeded) {
+      findings.push({
+        severity: 'high',
+        category: 'schema_complexity',
+        field: schemaBudget.exceededAtField ?? 'inputSchema',
+        message: `MCP107: Tool schema nesting depth exceeded safety limit (max depth ${MAX_SCHEMA_DEPTH}); quarantined fail-closed.`,
+      });
+    }
+    if (schemaBudget.nodesExceeded) {
+      findings.push({
+        severity: 'high',
+        category: 'schema_complexity',
+        field: schemaBudget.exceededAtField ?? 'inputSchema',
+        message: `MCP107: Tool schema node count exceeded safety budget (max ${MAX_SCHEMA_NODES} nodes); quarantined fail-closed.`,
+      });
+    }
+  }
+
+  if (tool.annotations !== undefined) {
+    const annotationsBudget: SchemaScanBudget = {
+      count: 0,
+      depthExceeded: false,
+      nodesExceeded: false,
+    };
+    collectSchemaStrings(tool.annotations, 'annotations', entries, annotationsBudget, 0);
+    if (annotationsBudget.depthExceeded) {
+      findings.push({
+        severity: 'high',
+        category: 'schema_complexity',
+        field: annotationsBudget.exceededAtField ?? 'annotations',
+        message: `MCP107: Tool annotations nesting depth exceeded safety limit (max depth ${MAX_SCHEMA_DEPTH}); quarantined fail-closed.`,
+      });
+    }
+    if (annotationsBudget.nodesExceeded) {
+      findings.push({
+        severity: 'high',
+        category: 'schema_complexity',
+        field: annotationsBudget.exceededAtField ?? 'annotations',
+        message: `MCP107: Tool annotations node count exceeded safety budget (max ${MAX_SCHEMA_NODES} nodes); quarantined fail-closed.`,
+      });
+    }
+  }
+
   for (const entry of entries) {
     scanStringField(entry, findings);
   }

@@ -64,6 +64,35 @@ describe('CLI & Live Stdio MCP Server End-to-End', () => {
     assert.equal(ver.stdout.trim(), '0.1.0');
   });
 
+  it('prints help and version normally when invoked through a symlink or Windows directory junction', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slim-cli-junction-'));
+    const linkedDist = path.join(tmpDir, 'linked-dist');
+    fs.symlinkSync(
+      path.join(repoRoot, 'dist'),
+      linkedDist,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+
+    try {
+      const linkedCli = path.join(linkedDist, 'cli.js');
+      const linkedMcp = path.join(linkedDist, 'mcp.js');
+
+      const cliHelp = await execNodeCli(linkedCli, ['--help']);
+      assert.equal(cliHelp.code, 0);
+      assert.match(cliHelp.stdout, /mcp-slim-proxy v0\.1\.0/);
+
+      const cliVer = await execNodeCli(linkedCli, ['--version']);
+      assert.equal(cliVer.code, 0);
+      assert.equal(cliVer.stdout.trim(), '0.1.0');
+
+      const mcpHelp = await execNodeCli(linkedMcp, ['--help']);
+      assert.equal(mcpHelp.code, 0);
+      assert.match(mcpHelp.stdout, /mcp-slim-proxy-server v0\.1\.0/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('runs mcp-slim-proxy savings in both json and pretty formats and exits cleanly', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slim-cli-savings-'));
     const cfgPath = path.join(tmpDir, 'slim-config.json');
@@ -88,8 +117,8 @@ describe('CLI & Live Stdio MCP Server End-to-End', () => {
       ]);
       assert.equal(jsonRun.code, 0, `stderr: ${jsonRun.stderr}`);
       const report = JSON.parse(jsonRun.stdout) as SavingsReport;
-      assert.equal(report.totals.rawToolCount, 18);
-      assert.equal(report.totals.quarantinedCount, 5);
+      assert.equal(report.totals.rawToolCount, 20);
+      assert.equal(report.totals.quarantinedCount, 7);
       assert.equal(report.totals.proxiedMetaToolCount, 4);
       assert.ok(report.totals.percentSaved > 55);
 
@@ -100,7 +129,7 @@ describe('CLI & Live Stdio MCP Server End-to-End', () => {
       );
       assert.equal(prettyRun.code, 0, `stderr: ${prettyRun.stderr}`);
       assert.match(prettyRun.stdout, /Context Token Savings & Firewall Audit/);
-      assert.match(prettyRun.stdout, /Quarantined Poisoned Tools \(5\)/);
+      assert.match(prettyRun.stdout, /Quarantined Poisoned Tools \(7\)/);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -256,7 +285,7 @@ describe('CLI & Live Stdio MCP Server End-to-End', () => {
       assert.match(pipePayload.finalOutput.text, /Discount=15%/);
       assert.match(pipePayload.finalOutput.text, /PrimarySKU=SKU-LAPTOP-14/);
 
-      // 5. Quarantined tool call via invoke_tool returns isError: true
+      // 5. Quarantined tools (both override and padded-schema MCP107) fail closed via describe_tool and invoke_tool
       const blockedRes = (await rpcCall('tools/call', {
         name: 'invoke_tool',
         arguments: {
@@ -266,6 +295,15 @@ describe('CLI & Live Stdio MCP Server End-to-End', () => {
       })) as { result: { isError?: boolean; content: Array<{ text: string }> } };
       assert.equal(blockedRes.result.isError, true);
       assert.match(blockedRes.result.content[0]!.text, /quarantined/i);
+
+      const blockedPaddedDesc = (await rpcCall('tools/call', {
+        name: 'describe_tool',
+        arguments: {
+          toolId: 'external.padded_650_props_tool',
+        },
+      })) as { result: { isError?: boolean; content: Array<{ text: string }> } };
+      assert.equal(blockedPaddedDesc.result.isError, true);
+      assert.match(blockedPaddedDesc.result.content[0]!.text, /MCP107/i);
     } finally {
       await killProcessTree(proxyProc);
       fs.rmSync(tmpDir, { recursive: true, force: true });
