@@ -300,7 +300,10 @@ export async function startStdioSlimProxy(options: ServeSlimProxyOptions): Promi
   };
 
   const onSignal = (): void => {
+    const forceExit = setTimeout(() => process.exit(1), 10_000);
+    forceExit.unref();
     void shutdown().finally(() => {
+      clearTimeout(forceExit);
       process.exit(0);
     });
   };
